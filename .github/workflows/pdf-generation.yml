@@ -1,0 +1,266 @@
+name: Generate and Publish PDF
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+  workflow_dispatch:
+  release:
+    types: [published]
+
+jobs:
+  build-pdf:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build HTML documentation
+        uses: diplodoc-platform/docs-build-action@v3
+        with:
+          revision: ${{ github.sha }}
+          src-root: "./docs"
+          output-dir: "./build"
+
+      - name: Install wkhtmltopdf
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wkhtmltopdf
+
+      - name: Generate PDF from HTML documentation
+        run: |
+          mkdir -p ./pdf-output
+          
+          # Create PDF generation script
+          cat > generate_pdf.py << 'EOF'
+          import os
+          import subprocess
+          import json
+          from pathlib import Path
+          
+          def find_html_files(directory):
+              """Find all HTML files in the build directory"""
+              html_files = []
+              for root, dirs, files in os.walk(directory):
+                  for file in files:
+                      if file.endswith('.html') and file != '404.html':
+                          html_files.append(os.path.join(root, file))
+              return html_files
+          
+          def generate_pdf(html_file, output_dir):
+              """Generate PDF from HTML file"""
+              # Get relative path for naming
+              rel_path = os.path.relpath(html_file, './build')
+              pdf_name = rel_path.replace('/', '_').replace('.html', '.pdf')
+              pdf_path = os.path.join(output_dir, pdf_name)
+              
+              # wkhtmltopdf command with options
+              cmd = [
+                  'wkhtmltopdf',
+                  '--page-size', 'A4',
+                  '--margin-top', '20mm',
+                  '--margin-right', '15mm',
+                  '--margin-bottom', '20mm',
+                  '--margin-left', '15mm',
+                  '--print-media-type',
+                  '--enable-local-file-access',
+                  '--header-center', 'Documentation',
+                  '--header-font-size', '10',
+                  '--footer-center', 'Page [page] of [toPage]',
+                  '--footer-font-size', '10',
+                  html_file,
+                  pdf_path
+              ]
+              
+              try:
+                  subprocess.run(cmd, check=True, capture_output=True)
+                  print(f"Generated: {pdf_path}")
+                  return pdf_path
+              except subprocess.CalledProcessError as e:
+                  print(f"Error generating PDF for {html_file}: {e}")
+                  return None
+          
+          # Main execution
+          if __name__ == "__main__":
+              build_dir = './build'
+              output_dir = './pdf-output'
+              
+              if not os.path.exists(build_dir):
+                  print("Build directory not found!")
+                  exit(1)
+              
+              os.makedirs(output_dir, exist_ok=True)
+              
+              html_files = find_html_files(build_dir)
+              print(f"Found {len(html_files)} HTML files")
+              
+              generated_pdfs = []
+              for html_file in html_files:
+                  pdf_path = generate_pdf(html_file, output_dir)
+                  if pdf_path:
+                      generated_pdfs.append(pdf_path)
+              
+              print(f"Generated {len(generated_pdfs)} PDF files")
+              
+              # Create a combined PDF for the main documentation
+              if generated_pdfs:
+                  # Find the main index file
+                  main_pdfs = [pdf for pdf in generated_pdfs if 'index' in pdf.lower()]
+                  if main_pdfs:
+                      main_pdf = main_pdfs[0]
+                      combined_path = os.path.join(output_dir, 'documentation.pdf')
+                      import shutil
+                      shutil.copy(main_pdf, combined_path)
+                      print(f"Created main documentation PDF: {combined_path}")
+          EOF
+          
+          # Install required Python packages
+          pip install --user pathlib2
+          
+          # Run the PDF generation script
+          python generate_pdf.py
+
+      - name: List generated files
+        run: |
+          echo "Generated PDF files:"
+          find ./pdf-output -name "*.pdf" -type f
+
+      - name: Upload PDF artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: documentation-pdf-${{ github.sha }}
+          path: ./pdf-output/*.pdf
+          retention-days: 30
+
+      - name: Create PDF directory for Pages
+        if: github.ref == 'refs/heads/main'
+        run: |
+          mkdir -p ./docs-pdf
+          cp -r ./pdf-output/* ./docs-pdf/
+          # Create an index.html for the PDF directory
+          cat > ./docs-pdf/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>Documentation PDFs</title>
+              <meta charset="utf-8">
+              <style>
+                  body { font-family: Arial, sans-serif; margin: 40px; }
+                  h1 { color: #333; }
+                  .pdf-list { list-style-type: none; padding: 0; }
+                  .pdf-list li { margin: 10px 0; }
+                  .pdf-list a { 
+                      display: inline-block; 
+                      padding: 10px 15px; 
+                      background-color: #f0f0f0; 
+                      text-decoration: none; 
+                      border-radius: 5px;
+                      color: #333;
+                  }
+                  .pdf-list a:hover { background-color: #e0e0e0; }
+              </style>
+          </head>
+          <body>
+              <h1>Documentation PDFs</h1>
+              <ul class="pdf-list">
+          EOF
+          
+          # Add PDF files to the index
+          for pdf in ./docs-pdf/*.pdf; do
+            if [ -f "$pdf" ]; then
+              filename=$(basename "$pdf")
+              echo "                  <li><a href=\"$filename\">$filename</a></li>" >> ./docs-pdf/index.html
+            fi
+          done
+          
+          cat >> ./docs-pdf/index.html << 'EOF'
+              </ul>
+              <p><em>Generated on $(date)</em></p>
+          </body>
+          </html>
+          EOF
+
+      - name: Deploy to GitHub Pages
+        if: github.ref == 'refs/heads/main'
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs-pdf
+          destination_dir: pdf
+          force_orphan: false
+          user_name: 'github-actions[bot]'
+          user_email: 'github-actions[bot]@users.noreply.github.com'
+          commit_message: 'Deploy PDF documentation'
+
+  publish-release:
+    runs-on: ubuntu-latest
+    needs: build-pdf
+    if: github.event_name == 'release'
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download PDF artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: documentation-pdf-${{ github.sha }}
+          path: ./release-pdfs
+
+      - name: Upload PDFs to release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ./release-pdfs/*.pdf
+          name: Documentation PDFs ${{ github.event.release.tag_name }}
+          body: |
+            Documentation PDFs generated for release ${{ github.event.release.tag_name }}
+            
+            This release includes:
+            - PDF versions of all documentation
+            - Generated on: ${{ github.event.release.published_at }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  notify-completion:
+    runs-on: ubuntu-latest
+    needs: [build-pdf]
+    if: always()
+    
+    steps:
+      - name: Report workflow status
+        run: |
+          if [ "${{ needs.build-pdf.result }}" == "success" ]; then
+            echo "✅ PDF generation completed successfully"
+            echo "📄 PDFs are available as workflow artifacts"
+            if [ "${{ github.ref }}" == "refs/heads/main" ]; then
+              echo "🌐 PDFs published to GitHub Pages at: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/pdf/"
+            fi
+          else
+            echo "❌ PDF generation failed"
+            exit 1
+          fi
