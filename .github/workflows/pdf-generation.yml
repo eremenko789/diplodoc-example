@@ -1,0 +1,188 @@
+name: Generate and Publish PDF
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+  workflow_dispatch:
+  release:
+    types: [published]
+
+jobs:
+  build-pdf:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build HTML documentation
+        uses: diplodoc-platform/docs-build-action@v3
+        with:
+          revision: ${{ github.sha }}
+          src-root: "./docs"
+          output-dir: "./build"
+
+      - name: Generate PDF from documentation
+        uses: diplodoc-platform/pdf-generator@v1
+        with:
+          input-dir: "./build"
+          output-dir: "./pdf-output"
+          config: |
+            {
+              "format": "A4",
+              "margin": {
+                "top": "20mm",
+                "right": "15mm",
+                "bottom": "20mm",
+                "left": "15mm"
+              },
+              "displayHeaderFooter": true,
+              "headerTemplate": "<div style='font-size: 10px; margin: 0 auto;'>Documentation</div>",
+              "footerTemplate": "<div style='font-size: 10px; margin: 0 auto;'><span class='pageNumber'></span> / <span class='totalPages'></span></div>",
+              "printBackground": true
+            }
+
+      - name: List generated files
+        run: |
+          echo "Generated PDF files:"
+          find ./pdf-output -name "*.pdf" -type f
+
+      - name: Upload PDF artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: documentation-pdf-${{ github.sha }}
+          path: ./pdf-output/*.pdf
+          retention-days: 30
+
+      - name: Create PDF directory for Pages
+        if: github.ref == 'refs/heads/main'
+        run: |
+          mkdir -p ./docs-pdf
+          cp -r ./pdf-output/* ./docs-pdf/
+          # Create an index.html for the PDF directory
+          cat > ./docs-pdf/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>Documentation PDFs</title>
+              <meta charset="utf-8">
+              <style>
+                  body { font-family: Arial, sans-serif; margin: 40px; }
+                  h1 { color: #333; }
+                  .pdf-list { list-style-type: none; padding: 0; }
+                  .pdf-list li { margin: 10px 0; }
+                  .pdf-list a { 
+                      display: inline-block; 
+                      padding: 10px 15px; 
+                      background-color: #f0f0f0; 
+                      text-decoration: none; 
+                      border-radius: 5px;
+                      color: #333;
+                  }
+                  .pdf-list a:hover { background-color: #e0e0e0; }
+              </style>
+          </head>
+          <body>
+              <h1>Documentation PDFs</h1>
+              <ul class="pdf-list">
+          EOF
+          
+          # Add PDF files to the index
+          for pdf in ./docs-pdf/*.pdf; do
+            if [ -f "$pdf" ]; then
+              filename=$(basename "$pdf")
+              echo "                  <li><a href=\"$filename\">$filename</a></li>" >> ./docs-pdf/index.html
+            fi
+          done
+          
+          cat >> ./docs-pdf/index.html << 'EOF'
+              </ul>
+              <p><em>Generated on $(date)</em></p>
+          </body>
+          </html>
+          EOF
+
+      - name: Deploy to GitHub Pages
+        if: github.ref == 'refs/heads/main'
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs-pdf
+          destination_dir: pdf
+          force_orphan: false
+          user_name: 'github-actions[bot]'
+          user_email: 'github-actions[bot]@users.noreply.github.com'
+          commit_message: 'Deploy PDF documentation'
+
+  publish-release:
+    runs-on: ubuntu-latest
+    needs: build-pdf
+    if: github.event_name == 'release'
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download PDF artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: documentation-pdf-${{ github.sha }}
+          path: ./release-pdfs
+
+      - name: Upload PDFs to release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ./release-pdfs/*.pdf
+          name: Documentation PDFs ${{ github.event.release.tag_name }}
+          body: |
+            Documentation PDFs generated for release ${{ github.event.release.tag_name }}
+            
+            This release includes:
+            - PDF versions of all documentation
+            - Generated on: ${{ github.event.release.published_at }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  notify-completion:
+    runs-on: ubuntu-latest
+    needs: [build-pdf]
+    if: always()
+    
+    steps:
+      - name: Report workflow status
+        run: |
+          if [ "${{ needs.build-pdf.result }}" == "success" ]; then
+            echo "✅ PDF generation completed successfully"
+            echo "📄 PDFs are available as workflow artifacts"
+            if [ "${{ github.ref }}" == "refs/heads/main" ]; then
+              echo "🌐 PDFs published to GitHub Pages at: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/pdf/"
+            fi
+          else
+            echo "❌ PDF generation failed"
+            exit 1
+          fi
