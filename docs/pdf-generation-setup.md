@@ -25,7 +25,7 @@ The PDF generation workflow is triggered by:
 
 The workflow:
 - Builds HTML documentation using `diplodoc-platform/docs-build-action`
-- Converts HTML to PDF using `diplodoc-platform/pdf-generator`
+- Converts HTML to PDF using `diplodoc-platform/pdf-generator@latest`
 - Applies professional formatting with headers, footers, and page numbering
 - Supports multi-language documentation (English and Russian)
 
@@ -207,14 +207,14 @@ You can extend the workflow to generate different PDF formats:
 
 ```yaml
 - name: Generate PDF - A4 Format
-  uses: diplodoc-platform/pdf-generator@v1
+  uses: diplodoc-platform/pdf-generator@latest
   with:
     input-dir: "./build"
     output-dir: "./pdf-output/a4"
     config: '{"format": "A4"}'
 
 - name: Generate PDF - Letter Format  
-  uses: diplodoc-platform/pdf-generator@v1
+  uses: diplodoc-platform/pdf-generator@latest
   with:
     input-dir: "./build"
     output-dir: "./pdf-output/letter"

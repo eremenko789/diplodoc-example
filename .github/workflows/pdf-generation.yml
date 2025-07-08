@@ -46,7 +46,7 @@ jobs:
           output-dir: "./build"
 
       - name: Generate PDF from documentation
-        uses: diplodoc-platform/pdf-generator@v1
+        uses: diplodoc-platform/pdf-generator@latest
         with:
           input-dir: "./build"
           output-dir: "./pdf-output"
