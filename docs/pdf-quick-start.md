@@ -61,22 +61,21 @@ docs/
 
 ## 🔧 Customization
 
-To customize PDF formatting, edit `.github/workflows/pdf-generation.yml`:
+To customize PDF formatting, edit the `wkhtmltopdf` command in `.github/workflows/pdf-generation.yml`:
 
-```yaml
-config: |
-  {
-    "format": "A4",           # Paper size
-    "margin": {
-      "top": "20mm",
-      "right": "15mm",
-      "bottom": "20mm",
-      "left": "15mm"
-    },
-    "displayHeaderFooter": true,
-    "headerTemplate": "<div style='font-size: 10px; margin: 0 auto;'>Your Custom Header</div>",
-    "footerTemplate": "<div style='font-size: 10px; margin: 0 auto;'><span class='pageNumber'></span> / <span class='totalPages'></span></div>"
-  }
+```python
+cmd = [
+    'wkhtmltopdf',
+    '--page-size', 'A4',           # Paper size
+    '--margin-top', '20mm',        # Margins
+    '--margin-right', '15mm',
+    '--margin-bottom', '20mm',
+    '--margin-left', '15mm',
+    '--header-center', 'Your Custom Header',  # Custom header
+    '--footer-center', 'Page [page] of [toPage]',  # Custom footer
+    html_file,
+    pdf_path
+]
 ```
 
 ## 🆘 Quick Troubleshooting

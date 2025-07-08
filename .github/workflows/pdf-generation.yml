@@ -45,25 +45,103 @@ jobs:
           src-root: "./docs"
           output-dir: "./build"
 
-      - name: Generate PDF from documentation
-        uses: diplodoc-platform/pdf-generator@latest
-        with:
-          input-dir: "./build"
-          output-dir: "./pdf-output"
-          config: |
-            {
-              "format": "A4",
-              "margin": {
-                "top": "20mm",
-                "right": "15mm",
-                "bottom": "20mm",
-                "left": "15mm"
-              },
-              "displayHeaderFooter": true,
-              "headerTemplate": "<div style='font-size: 10px; margin: 0 auto;'>Documentation</div>",
-              "footerTemplate": "<div style='font-size: 10px; margin: 0 auto;'><span class='pageNumber'></span> / <span class='totalPages'></span></div>",
-              "printBackground": true
-            }
+      - name: Install wkhtmltopdf
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wkhtmltopdf
+
+      - name: Generate PDF from HTML documentation
+        run: |
+          mkdir -p ./pdf-output
+          
+          # Create PDF generation script
+          cat > generate_pdf.py << 'EOF'
+          import os
+          import subprocess
+          import json
+          from pathlib import Path
+          
+          def find_html_files(directory):
+              """Find all HTML files in the build directory"""
+              html_files = []
+              for root, dirs, files in os.walk(directory):
+                  for file in files:
+                      if file.endswith('.html') and file != '404.html':
+                          html_files.append(os.path.join(root, file))
+              return html_files
+          
+          def generate_pdf(html_file, output_dir):
+              """Generate PDF from HTML file"""
+              # Get relative path for naming
+              rel_path = os.path.relpath(html_file, './build')
+              pdf_name = rel_path.replace('/', '_').replace('.html', '.pdf')
+              pdf_path = os.path.join(output_dir, pdf_name)
+              
+              # wkhtmltopdf command with options
+              cmd = [
+                  'wkhtmltopdf',
+                  '--page-size', 'A4',
+                  '--margin-top', '20mm',
+                  '--margin-right', '15mm',
+                  '--margin-bottom', '20mm',
+                  '--margin-left', '15mm',
+                  '--print-media-type',
+                  '--enable-local-file-access',
+                  '--header-center', 'Documentation',
+                  '--header-font-size', '10',
+                  '--footer-center', 'Page [page] of [toPage]',
+                  '--footer-font-size', '10',
+                  html_file,
+                  pdf_path
+              ]
+              
+              try:
+                  subprocess.run(cmd, check=True, capture_output=True)
+                  print(f"Generated: {pdf_path}")
+                  return pdf_path
+              except subprocess.CalledProcessError as e:
+                  print(f"Error generating PDF for {html_file}: {e}")
+                  return None
+          
+          # Main execution
+          if __name__ == "__main__":
+              build_dir = './build'
+              output_dir = './pdf-output'
+              
+              if not os.path.exists(build_dir):
+                  print("Build directory not found!")
+                  exit(1)
+              
+              os.makedirs(output_dir, exist_ok=True)
+              
+              html_files = find_html_files(build_dir)
+              print(f"Found {len(html_files)} HTML files")
+              
+              generated_pdfs = []
+              for html_file in html_files:
+                  pdf_path = generate_pdf(html_file, output_dir)
+                  if pdf_path:
+                      generated_pdfs.append(pdf_path)
+              
+              print(f"Generated {len(generated_pdfs)} PDF files")
+              
+              # Create a combined PDF for the main documentation
+              if generated_pdfs:
+                  # Find the main index file
+                  main_pdfs = [pdf for pdf in generated_pdfs if 'index' in pdf.lower()]
+                  if main_pdfs:
+                      main_pdf = main_pdfs[0]
+                      combined_path = os.path.join(output_dir, 'documentation.pdf')
+                      import shutil
+                      shutil.copy(main_pdf, combined_path)
+                      print(f"Created main documentation PDF: {combined_path}")
+          EOF
+          
+          # Install required Python packages
+          pip install --user pathlib2
+          
+          # Run the PDF generation script
+          python generate_pdf.py
 
       - name: List generated files
         run: |

@@ -42,7 +42,7 @@ enjoy developing documentation with html result preview in split view
 
 ## PDF Generation 📄
 
-This documentation template now includes **automated PDF generation and publication** using GitHub Actions!
+This documentation template now includes **automated PDF generation and publication** using GitHub Actions with wkhtmltopdf!
 
 ### What you get:
 - **Professional PDFs** with proper formatting, headers, and page numbers

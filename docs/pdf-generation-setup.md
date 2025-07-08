@@ -4,7 +4,7 @@ This document explains how to set up and use the PDF generation workflow for you
 
 ## Overview
 
-The PDF generation workflow automatically converts your Diplodoc documentation into PDF format using the `diplodoc-platform/pdf-generator` action. The workflow provides multiple publication options:
+The PDF generation workflow automatically converts your Diplodoc documentation into PDF format using `wkhtmltopdf` after building HTML with the `diplodoc-platform/docs-build-action`. The workflow provides multiple publication options:
 
 - **Artifacts**: PDFs are uploaded as GitHub workflow artifacts
 - **GitHub Pages**: PDFs are published to a dedicated `/pdf` subdirectory
@@ -25,7 +25,7 @@ The PDF generation workflow is triggered by:
 
 The workflow:
 - Builds HTML documentation using `diplodoc-platform/docs-build-action`
-- Converts HTML to PDF using `diplodoc-platform/pdf-generator@latest`
+- Converts HTML to PDF using `wkhtmltopdf` with professional formatting
 - Applies professional formatting with headers, footers, and page numbering
 - Supports multi-language documentation (English and Russian)
 
@@ -58,35 +58,37 @@ The generated PDFs include:
 
 ### PDF Generation Options
 
-You can customize the PDF generation by modifying the `config` section in the workflow:
+You can customize the PDF generation by modifying the `wkhtmltopdf` command options in the workflow's Python script:
 
-```yaml
-config: |
-  {
-    "format": "A4",
-    "margin": {
-      "top": "20mm",
-      "right": "15mm", 
-      "bottom": "20mm",
-      "left": "15mm"
-    },
-    "displayHeaderFooter": true,
-    "headerTemplate": "<div style='font-size: 10px; margin: 0 auto;'>Documentation</div>",
-    "footerTemplate": "<div style='font-size: 10px; margin: 0 auto;'><span class='pageNumber'></span> / <span class='totalPages'></span></div>",
-    "printBackground": true
-  }
+```python
+cmd = [
+    'wkhtmltopdf',
+    '--page-size', 'A4',
+    '--margin-top', '20mm',
+    '--margin-right', '15mm',
+    '--margin-bottom', '20mm',
+    '--margin-left', '15mm',
+    '--print-media-type',
+    '--enable-local-file-access',
+    '--header-center', 'Documentation',
+    '--header-font-size', '10',
+    '--footer-center', 'Page [page] of [toPage]',
+    '--footer-font-size', '10',
+    html_file,
+    pdf_path
+]
 ```
 
 ### Available Options
 
-- `format`: Paper size (A4, A3, Letter, Legal, etc.)
-- `margin`: Page margins (top, right, bottom, left)
-- `displayHeaderFooter`: Show/hide headers and footers
-- `headerTemplate`: Custom header HTML template
-- `footerTemplate`: Custom footer HTML template
-- `printBackground`: Include background colors and images
-- `landscape`: Portrait or landscape orientation
-- `scale`: Scale factor for the content
+- `--page-size`: Paper size (A4, A3, Letter, Legal, etc.)
+- `--margin-*`: Page margins (top, right, bottom, left)
+- `--header-*`: Header configuration and content
+- `--footer-*`: Footer configuration and content
+- `--print-media-type`: Use print CSS media type
+- `--enable-local-file-access`: Allow access to local files
+- `--orientation`: Portrait or Landscape
+- `--zoom`: Scale factor for the content
 
 ## GitHub Pages Setup
 
@@ -176,14 +178,22 @@ Each language will generate a separate PDF:
 
 ### Custom PDF Styling
 
-You can customize the PDF appearance by modifying the header and footer templates:
+You can customize the PDF appearance by modifying the wkhtmltopdf command options in the workflow:
 
-```yaml
-headerTemplate: |
-  <div style='font-size: 12px; width: 100%; text-align: center; color: #666;'>
-    <span style='float: left;'>My Documentation</span>
-    <span style='float: right;'>Version 1.0</span>
-  </div>
+```python
+# Custom header and footer examples
+cmd = [
+    'wkhtmltopdf',
+    '--page-size', 'A4',
+    '--header-left', 'My Documentation',
+    '--header-right', 'Version 1.0',
+    '--header-font-size', '12',
+    '--footer-left', 'Generated on [date]',
+    '--footer-right', 'Page [page] of [toPage]',
+    '--footer-font-size', '10',
+    html_file,
+    pdf_path
+]
 ```
 
 ### Conditional Triggers
@@ -203,22 +213,29 @@ on:
 
 ### Multiple Output Formats
 
-You can extend the workflow to generate different PDF formats:
+You can extend the workflow to generate different PDF formats by modifying the Python script:
 
-```yaml
-- name: Generate PDF - A4 Format
-  uses: diplodoc-platform/pdf-generator@latest
-  with:
-    input-dir: "./build"
-    output-dir: "./pdf-output/a4"
-    config: '{"format": "A4"}'
+```python
+# Generate multiple formats
+formats = [
+    {'size': 'A4', 'dir': 'a4'},
+    {'size': 'Letter', 'dir': 'letter'},
+    {'size': 'A3', 'dir': 'a3'}
+]
 
-- name: Generate PDF - Letter Format  
-  uses: diplodoc-platform/pdf-generator@latest
-  with:
-    input-dir: "./build"
-    output-dir: "./pdf-output/letter"
-    config: '{"format": "Letter"}'
+for fmt in formats:
+    output_subdir = os.path.join(output_dir, fmt['dir'])
+    os.makedirs(output_subdir, exist_ok=True)
+    
+    cmd = [
+        'wkhtmltopdf',
+        '--page-size', fmt['size'],
+        '--margin-top', '20mm',
+        # ... other options
+        html_file,
+        os.path.join(output_subdir, pdf_name)
+    ]
+    subprocess.run(cmd, check=True)
 ```
 
 ## Best Practices
@@ -238,7 +255,7 @@ You can extend the workflow to generate different PDF formats:
 ## Support
 
 For issues with:
-- **PDF Generation**: Check the [diplodoc-platform/pdf-generator](https://github.com/diplodoc-platform/pdf-generator) repository
+- **PDF Generation**: Check the [wkhtmltopdf documentation](https://wkhtmltopdf.org/usage/wkhtmltopdf.txt) or [GitHub issues](https://github.com/wkhtmltopdf/wkhtmltopdf/issues)
 - **Documentation Building**: Check the [diplodoc-platform/docs-build-action](https://github.com/diplodoc-platform/docs-build-action) repository
 - **This Workflow**: Open an issue in this repository
 
